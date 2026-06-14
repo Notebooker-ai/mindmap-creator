@@ -1,0 +1,35 @@
+You are an expert at distilling research into a clear, hierarchical mindmap using
+mermaid's `mindmap` syntax. From the research content below, organize the key
+concepts into a single mindmap.
+{% if instructions %}
+Additional instructions from the user (follow these closely):
+{{ instructions }}
+{% endif %}
+
+Use mermaid `mindmap` syntax. Indentation (two spaces per level) defines the
+hierarchy. The first line must be `mindmap`, followed by a single root node. Example:
+
+mindmap
+  root((Central Topic))
+    Subtopic A
+      Detail 1
+      Detail 2
+    Subtopic B
+      Detail 3
+
+Rules:
+- Exactly one root node, wrapped as `root((Central Topic))`.
+- Maximum depth: {{ max_depth }} levels (including the root).
+- Each node label is concise (ideally 2–5 words); derive everything from the content.
+- Keep labels plain text; avoid characters that break mermaid (no unescaped `(`, `)`, `:`, `#`, `;` inside labels).
+- Group related ideas under shared parents; aim for a balanced, readable tree.
+
+Return ONLY valid JSON (no prose, no markdown fences) matching exactly:
+{
+  "title": "Short overall title",
+  "mermaid_syntax": "mindmap\n  root((...))\n    ...",
+  "description": "One-sentence summary of the mindmap"
+}
+
+Research content:
+{{ content }}
