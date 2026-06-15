@@ -20,12 +20,19 @@ from open_notebook_creator_sdk import (
 from open_notebook_creator_sdk.schemas import MindmapV1
 from pydantic import BaseModel, Field
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 class MindmapConfig(BaseModel):
     max_depth: int = Field(
         default=5, ge=2, le=8, description="Maximum depth of the mindmap hierarchy"
+    )
+    count: int = Field(
+        default=1,
+        ge=1,
+        le=6,
+        title="Number to generate",
+        description="How many to generate; each one uses a different design and emphasis.",
     )
 
 
