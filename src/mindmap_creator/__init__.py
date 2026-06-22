@@ -15,12 +15,13 @@ from open_notebook_creator_sdk import (
     CreationRequest,
     CreationResult,
     CreatorManifest,
+    CreatorView,
     ModelRoleSpec,
 )
 from open_notebook_creator_sdk.schemas import MindmapV1
 from pydantic import BaseModel, Field
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 
 class MindmapConfig(BaseModel):
@@ -63,7 +64,7 @@ class MindmapCreator(BaseCreator):
             name="Mindmaps",
             version=__version__,
             description="LLM-generated mermaid mindmaps rendered in the browser.",
-            sdk_compat=">=0.1,<1",
+            sdk_compat=">=0.4,<1",
             emits=["mindmap.v1"],
             model_roles=[
                 ModelRoleSpec(
@@ -74,6 +75,7 @@ class MindmapCreator(BaseCreator):
                 )
             ],
             icon="network",
+            view=CreatorView(entry="view/index.html"),
         )
 
     async def generate(self, request: CreationRequest) -> CreationResult:

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mindmap</title>
+<!--
+  mindmap-creator view bundle. Self-contained (no external deps, no CDN) so it
+  runs in the host's sandboxed, opaque-origin iframe. The host posts the artifact
+  in via postMessage; this view dispatches on schema_id and renders. Display-only.
+
+  We deliberately do NOT use mermaid.js (ESM-only, ~3MB). Instead we ship a small
+  custom renderer that parses the `mindmap` block by indentation into a tree and
+  draws a nested <ul>/<li>.
+
+  Versioning lives here: keep a renderer for every schema_id this creator has ever
+  emitted. Today that is just mindmap.v1.
+-->
+<style>
+  :root {
+    --bg: #ffffff; --fg: #18181b; --muted: #71717a; --card: #fafafa;
+    --border: #e4e4e7; --accent: #4f46e5; --accent-fg: #ffffff;
+  }
+  :root[data-theme="dark"] {
+    --bg: #18181b; --fg: #fafafa; --muted: #a1a1aa; --card: #27272a;
+    --border: #3f3f46; --accent: #6366f1; --accent-fg: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  h1.title { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+  .tree { margin-top: 4px; }
+  .tree ul { margin-left: 20px; padding-left: 16px; border-left: 1px solid var(--border); }
+  .tree li { margin: 6px 0; }
+  .node {
+    display: inline-block; padding: 4px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--card);
+  }
+  .node.root {
+    background: var(--accent); color: var(--accent-fg);
+    border-color: transparent; font-weight: 600; font-size: 15px;
+    padding: 6px 14px; border-radius: 999px;
+  }
+  pre {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    color: var(--fg); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="root"><div class="empty">Loading…</div></div>
+<script>
+(function () {
+  "use strict";
+  var root = document.getElementById("root");
+  var esc = function (s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  };
+
+  // ---- per-schema renderers (keep old versions forever) --------------------
+  var renderers = {
+    "mindmap.v1": renderMindmapV1,
+  };
+
+  // Strip mermaid node-shape decorations and class/icon suffixes from a label.
+  function cleanLabel(text) {
+    var s = String(text == null ? "" : text).trim();
+    // Drop trailing ::icon(...) and :::someClass decorations first.
+    s = s.replace(/::icon\([^)]*\)\s*$/, "").trim();
+    s = s.replace(/:::\S+\s*$/, "").trim();
+    // Unwrap node shapes: root((X)) / ((X)) -> X, [X] -> X, (X) -> X, {{X}} -> X.
+    var m;
+    if ((m = s.match(/^[A-Za-z0-9_]*\(\((.*)\)\)$/))) s = m[1];
+    else if ((m = s.match(/^\(\((.*)\)\)$/))) s = m[1];
+    else if ((m = s.match(/^\{\{(.*)\}\}$/))) s = m[1];
+    else if ((m = s.match(/^\[(.*)\]$/))) s = m[1];
+    else if ((m = s.match(/^\((.*)\)$/))) s = m[1];
+    return s.trim();
+  }
+
+  // Parse a mermaid `mindmap` block into a tree using indentation depth.
+  function parseMindmap(syntax) {
+    var lines = String(syntax || "").replace(/\r\n/g, "\n").split("\n");
+    // Drop blank lines and a leading line that is just "mindmap".
+    var rows = [];
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (!line.trim()) continue;
+      if (!rows.length && line.trim() === "mindmap") continue;
+      var indent = line.length - line.replace(/^\s*/, "").length;
+      var label = cleanLabel(line.trim());
+      if (!label) continue;
+      rows.push({ indent: indent, label: label });
+    }
+    if (!rows.length) return null;
+
+    // Build tree: each row is a child of the nearest preceding row with a
+    // strictly smaller indent. A synthetic super-root holds top-level rows.
+    var superRoot = { label: null, children: [] };
+    var stack = [{ indent: -1, node: superRoot }];
+    for (var j = 0; j < rows.length; j++) {
+      var r = rows[j];
+      while (stack.length > 1 && stack[stack.length - 1].indent >= r.indent) {
+        stack.pop();
+      }
+      var node = { label: r.label, children: [] };
+      stack[stack.length - 1].node.children.push(node);
+      stack.push({ indent: r.indent, node: node });
+    }
+    // If exactly one top-level node, treat it as THE root; otherwise keep super-root.
+    if (superRoot.children.length === 1) return superRoot.children[0];
+    return superRoot;
+  }
+
+  function renderTree(node, isRoot) {
+    var hasLabel = node.label != null;
+    var html = "";
+    if (hasLabel) {
+      html += '<span class="node' + (isRoot ? ' root' : '') + '">' +
+              esc(node.label) + '</span>';
+    }
+    if (node.children && node.children.length) {
+      var kids = node.children.map(function (c) {
+        return '<li>' + renderTree(c, false) + '</li>';
+      }).join("");
+      html += '<ul>' + kids + '</ul>';
+    }
+    return html;
+  }
+
+  function renderMindmapV1(data) {
+    var title = (data && data.title) || "Mindmap";
+    var head =
+      '<h1 class="title">' + esc(title) + '</h1>' +
+      (data && data.description ? '<p class="subtitle">' + esc(data.description) + '</p>' : '');
+
+    var tree = null;
+    try { tree = parseMindmap(data && data.mermaid_syntax); }
+    catch (e) { tree = null; }
+
+    if (!tree) {
+      // Parse failure -> show raw syntax verbatim.
+      root.innerHTML = head + '<pre>' + esc((data && data.mermaid_syntax) || "") + '</pre>';
+      return;
+    }
+
+    var rootIsLabeled = tree.label != null;
+    var body = '<ul class="tree"><li>' + renderTree(tree, rootIsLabeled) + '</li></ul>';
+    root.innerHTML = head + body;
+  }
+
+  // ---- host handshake ------------------------------------------------------
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light");
+  }
+
+  // Resolve the effective light/dark theme from the posted message.
+  function resolveTheme(msg) {
+    var t = (msg.config && msg.config.theme) || (msg.data && msg.data.theme) || "auto";
+    if (t === "auto") t = msg.theme === "dark" ? "dark" : "light";
+    return t;
+  }
+
+  function onArtifact(msg) {
+    applyTheme(resolveTheme(msg));
+    var r = renderers[msg.schema_id];
+    if (!r) {
+      root.innerHTML = '<div class="empty">No renderer for "' + esc(msg.schema_id) + '".</div>';
+      return;
+    }
+    try { r(msg.data || {}); }
+    catch (e) { root.innerHTML = '<div class="empty">Failed to render this artifact.</div>'; }
+  }
+
+  window.addEventListener("message", function (e) {
+    var d = e.data;
+    if (d && d.type === "open-notebook:artifact") onArtifact(d);
+  });
+  // Tell the host we're listening; it (re)posts the artifact in response.
+  try { parent.postMessage({ type: "open-notebook:ready" }, "*"); } catch (e) {}
+})();
+</script>
+</body>
+</html>
