@@ -21,7 +21,9 @@ from open_notebook_creator_sdk import (
 from open_notebook_creator_sdk.schemas import MindmapV1
 from pydantic import BaseModel, Field
 
-__version__ = "0.2.0"
+from mindmap_creator.export import build_export_files
+
+__version__ = "0.3.0"
 
 
 class MindmapConfig(BaseModel):
@@ -131,8 +133,18 @@ class MindmapCreator(BaseCreator):
             description=parsed.get("description"),
         ).model_dump()
 
+        files: list = []
+        warnings: list = []
+        try:
+            files, warnings = build_export_files(data, request.output_dir)
+        except Exception as e:  # export must never turn a SUCCESS into a FAILURE
+            logger.warning(f"mindmaps: export failed: {e}")
+            warnings = [f"Export files could not be generated: {e}"]
+
         return CreationResult(
             status="SUCCESS",
             schema_id="mindmap.v1",
             data=data,
+            files=files,
+            warnings=warnings,
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from pathlib import Path
 
 import pytest
 from mindmap_creator import MindmapCreator
@@ -59,6 +60,15 @@ async def test_generate_valid_mindmap():
         assert_result_compliant(creator, result)
         assert result.data["mermaid_syntax"].startswith("mindmap")
         assert result.data["title"] == "Topic"
+        # Exports are attached as downloadable files written under output_dir.
+        assert [f.content_type for f in result.files] == [
+            "text/markdown",
+            "image/svg+xml",
+            "image/png",
+        ]
+        for f in result.files:
+            assert (Path(td) / f.path).is_file()
+        assert result.warnings == []
 
 
 @pytest.mark.asyncio
@@ -148,6 +158,30 @@ async def test_no_text_role_is_failure():
         result = await creator.generate(req)
         assert result.status == "FAILURE"
         assert result.errors[0].phase == "setup"
+
+
+@pytest.mark.asyncio
+async def test_export_failure_is_warning_not_failure(monkeypatch):
+    """A broken export pipeline must never fail an otherwise good generation."""
+    import mindmap_creator
+
+    def boom(*_):
+        raise RuntimeError("export exploded")
+
+    monkeypatch.setattr(mindmap_creator, "build_export_files", boom)
+    creator = MindmapCreator()
+    payload = {"title": "Topic", "mermaid_syntax": _MERMAID}
+    with tempfile.TemporaryDirectory() as td:
+        req = CreationRequest(
+            content=ContentBundle(text="x"),
+            models={"text": _role(payload)},
+            output_dir=td,
+            artifact_id="a",
+        )
+        result = await creator.generate(req)
+        assert result.status == "SUCCESS"
+        assert result.files == []
+        assert result.warnings and "export exploded" in result.warnings[0]
 
 
 def test_manifest_declares_view_bundle_and_it_ships():
