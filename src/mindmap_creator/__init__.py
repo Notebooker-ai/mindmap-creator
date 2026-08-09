@@ -78,6 +78,10 @@ class MindmapCreator(BaseCreator):
             ],
             icon="network",
             view=CreatorView(entry="view/index.html"),
+            suggestion_hint=(
+                "what the central concept should be, how the branches should be "
+                "organized, and how deep to take each one"
+            ),
         )
 
     async def generate(self, request: CreationRequest) -> CreationResult:
